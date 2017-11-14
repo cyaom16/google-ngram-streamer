@@ -1,15 +1,9 @@
+# from time import sleep
 from util import *
-from time import sleep
 import os.path
+# import sys
 import csv
 import re
-
-
-pos_tags = ['ADJ', 'ADP', 'ADV', 'CONJ', 'DET',
-            'NOUN', 'NUM', 'PRON', 'PRT', 'VERB']
-
-remove = '|'.join(pos_tags)
-pa = re.compile(r'\b(' + remove + r')\b\s*')
 
 
 """
@@ -54,33 +48,57 @@ target_dict = {'labour': ('labour party',),
                'protectionism': ('protectionism', 'protectionist', 'protectionists')}
 
 csv_template = "./ngram_match/ngram_match_{group}.csv"
-header = ['ngram', 'year', 'match_count', 'volume_count']
+csv_header = ['ngram', 'year', 'match_count', 'volume_count']
 
-
-streamer = NgramStreamer(lang='eng-us', n=5, ver='20120701')
-
+indices = None
+log_indices = []
+log_line = 0
 log_file = "./log.txt"
-file_exists = os.path.isfile(log_file)
-if file_exists:
+if os.path.isfile(log_file):
     with open(log_file, 'r') as f:
-        log = [x.strip('\n') for x in f.readlines()]
+        lines = [line.strip('\n').split() for line in f.readlines()]
+
+    # Extract unique indices from the log file
     seen = set()
     seen_add = seen.add
-    for i in log:
-        idx, line = i.split()
-    unique_idx = [line.split()[0] for line in log if not (line[0] in seen or seen_add(x))]
+    log_indices = [line[0] for line in lines if not (line[0] in seen or seen_add(line[0]))]
+    indices = [i for i in get_indices(n=5) if i not in log_indices[:-1]]
 
-for record in streamer.stream_collection():
+    if len(lines):
+        log_line = int(lines[-1][-1])
+print("Last logged line number", log_line)
+if log_line > 0:
+    print("Skipping records...")
+
+# Remove POS tags in the text
+pos_tags = ['ADJ', 'ADP', 'ADV', 'CONJ', 'DET', 'NOUN', 'NUM', 'PRON', 'PRT', 'VERB']
+remove = '|'.join(pos_tags)
+pa = re.compile(r'\b(' + remove + r')\b\s*')
+
+streamer = NgramStreamer(lang='eng-us', n=5, ver='20120701', idx=indices)
+
+# count = 0
+for meta, record in streamer.stream_collection():
     # print(u'{ngram}\t{year}\t{match_count}\t{volume_count}'.format(**record._asdict()))
+
+    # Skipping records until the last logged if necessary
+    if len(log_indices) and log_line > 0:
+        if meta[-1] == log_indices[-1] and record.line_number <= log_line:
+            # count += 1
+            # sys.stdout.write("\rSkipped {} records".format(count))
+            # sys.stdout.flush()
+            continue
+
     s = record.ngram
-    res = pa.sub('', s.replace('_', '')).lower()
+    res = pa.sub('', s.replace('_X', '').replace('_', '')).lower()
     # print(res)
 
     for key in target_dict:
+        # Log ngram match in the given group
         csv_file = csv_template.format(group=key).replace(' ', '_')
         file_exists = os.path.isfile(csv_file)
         with open(csv_file, 'a', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=header, delimiter='\t')
+            writer = csv.DictWriter(f, fieldnames=csv_header, delimiter='\t')
             if not file_exists:
                 writer.writeheader()
 
@@ -90,10 +108,11 @@ for record in streamer.stream_collection():
                                      'year': record.year,
                                      'match_count': record.match_count,
                                      'volume_count': record.volume_count})
-    if record.line % 1000 == 0:
-        print("Already processed {}, and logged.".format(record.line + 1))
+
+    if record.line_number % 5000 == 1:
+        print("Index: {}, processed {}.".format(meta[-1], record.line_number))
         with open(log_file, 'a') as f:
-            f.write(" ".join((record.meta[-1], record.line)))
+            # The last entry in the meta contains the index
+            f.write(" ".join((meta[-1], str(record.line_number))) + '\n')
 
-
-
+print("Complete!")
