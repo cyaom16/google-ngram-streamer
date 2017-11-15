@@ -1,0 +1,6 @@
+__pycache__/
+ngram_match/
+data/
+log.txt
+dec_test.py
+
