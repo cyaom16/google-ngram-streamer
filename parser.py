@@ -66,32 +66,26 @@ if os.path.isfile(log_file):
 
     if len(lines):
         log_line = int(lines[-1][-1])
-print("Last logged line number", log_line)
-if log_line > 0:
-    print("Skipping records...")
+
+    if log_line > 0:
+        print("Last logged line number", log_line)
 
 # Remove POS tags in the text
 pos_tags = ['ADJ', 'ADP', 'ADV', 'CONJ', 'DET', 'NOUN', 'NUM', 'PRON', 'PRT', 'VERB']
 remove = '|'.join(pos_tags)
 pa = re.compile(r'\b(' + remove + r')\b\s*')
 
-streamer = NgramStreamer(lang='eng-us', n=5, ver='20120701', idx=indices)
+print("Indices:", indices)
+streamer = NgramStreamer(lang='eng-us', n=5, ver='20120701', idx=indices, stream=False)
 
-# count = 0
-for meta, record in streamer.stream_collection():
-    # print(u'{ngram}\t{year}\t{match_count}\t{volume_count}'.format(**record._asdict()))
-
+for meta, record in streamer.iter_collection():
     # Skipping records until the last logged if necessary
-    if len(log_indices) and log_line > 0:
-        if meta[-1] == log_indices[-1] and record.line_number <= log_line:
-            # count += 1
-            # sys.stdout.write("\rSkipped {} records".format(count))
-            # sys.stdout.flush()
+    num = record.line_number
+    if len(log_indices) and log_line and meta[-1] == log_indices[-1] and num <= log_line:
             continue
 
     s = record.ngram
     res = pa.sub('', s.replace('_X', '').replace('_', '')).lower()
-    # print(res)
 
     for key in target_dict:
         # Log ngram match in the given group
@@ -109,10 +103,10 @@ for meta, record in streamer.stream_collection():
                                      'match_count': record.match_count,
                                      'volume_count': record.volume_count})
 
-    if record.line_number % 5000 == 1:
-        print("Index: {}, processed {}.".format(meta[-1], record.line_number))
+    if num % 5000 == 1:
+        print("Index: {}, processed {}.".format(meta[-1], num))
         with open(log_file, 'a') as f:
             # The last entry in the meta contains the index
-            f.write(" ".join((meta[-1], str(record.line_number))) + '\n')
+            f.write(" ".join((meta[-1], str(num))) + "\n")
 
 print("Complete!")
