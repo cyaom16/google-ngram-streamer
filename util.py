@@ -20,15 +20,17 @@ def get_indices(n=1):
         sorted list of indices
 
     """
+    others = ['other', 'punctuation']
     if n == 1:
         letters = list(ascii_lowercase)
-        others = ['other', 'punctuation', 'pos']
+        others += ['pos']
     else:
         letters = [''.join(i) for i in product(ascii_lowercase, '_' + ascii_lowercase)]
+        # All 5-gram collections do not have index qk
         if n == 5:
             letters.remove('qk')
-        others = ['_ADJ_', '_ADP_', '_ADV_', '_CONJ_', '_DET_',
-                  '_NOUN_', '_NUM_', '_PRON_', '_PRT_', '_VERB_']
+        others += ['_ADJ_', '_ADP_', '_ADV_', '_CONJ_', '_DET_',
+                   '_NOUN_', '_NUM_', '_PRON_', '_PRT_', '_VERB_']
 
     return sorted(list(digits) + letters + others)
 
@@ -47,7 +49,8 @@ def iter_content(file, chunk_size=1024 ** 2):
 class NgramStreamer(object):
     def __init__(self, lang='eng-us', n=1, ver='20120701', idx=None, stream=True):
         """
-            Ngram streamer, yield generator record
+            Ngram streamer
+            yield Record(line_number, ngram, year, match_count, volume_count)
 
             # Arguments
                 lang: Language
@@ -99,7 +102,6 @@ class NgramStreamer(object):
                 compressed_chunks = iter_content(data_path, chunk_size=chunk_size)
 
             dec = zlib.decompressobj(32 + zlib.MAX_WBITS)
-
             last = b''
             line_num = 0
             for chunk in compressed_chunks:
