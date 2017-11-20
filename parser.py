@@ -1,5 +1,5 @@
-# from time import sleep
 from util import get_indices, NgramStreamer, KillerHandler
+# import multiprocessing as mp
 import os.path
 import sys
 import csv
@@ -7,11 +7,39 @@ import re
 
 
 LOG_FILE = "./log.txt"
+CSV_TEMPLATE = "./ngram_match/ngram_match_{group}.csv"
+CSV_HEADER = ['ngram', 'year', 'match_count', 'volume_count']
 
 
-def write_log(file, index, line):
-    with open(file, 'a') as f:
-        f.write(" ".join((index, str(line))) + "\n")
+def write_log(log_fname, index, line):
+    """
+        Quick logger
+    """
+    with open(log_fname, 'a') as log_file:
+        log_file.write(" ".join((index, str(line))) + "\n")
+    return
+
+
+def write_batch(match_dict, csv_template, csv_header):
+    """
+        CSV batch writer for match records
+    """
+    for group in match_dict:
+        # A set object
+        match_set = match_dict[group]
+        if match_set:
+            csv_fname = csv_template.format(group=group).replace(' ', '_')
+            with open(csv_fname, 'a', newline='') as csv_file:
+                csv_writer = csv.DictWriter(csv_file, fieldnames=csv_header, delimiter='\t')
+                if not os.path.isfile(csv_fname):
+                    csv_writer.writeheader()
+                for match_record in match_set:
+                    csv_writer.writerow({'ngram': match_record[0],
+                                         'year': match_record[1],
+                                         'match_count': match_record[2],
+                                         'volume_count': match_record[3]})
+            # Clear match records in the set after CSV dumping
+            match_set.clear()
     return
 
 
@@ -58,8 +86,8 @@ target_dict = {'labour': ('labour party',),
                'fascism': ('fascism', 'fascist', 'fascists'),
                'protectionism': ('protectionism', 'protectionist', 'protectionists')}
 
-csv_template = "./ngram_match/ngram_match_{group}.csv"
-csv_header = ['ngram', 'year', 'match_count', 'volume_count']
+# Create a match results collection
+result_dict = dict.fromkeys(target_dict, set())
 
 log_indices = []
 log_line = 0
@@ -67,7 +95,7 @@ log_line = 0
 if os.path.isfile(LOG_FILE):
     print("Log found:\n")
     with open(LOG_FILE, 'r') as f:
-        lines = [line.strip('\n').split() for line in f.readlines()]
+        lines = [line.strip('\n').split() for line in f]
 
     if len(lines):
         # Extract unique indices from the log file
@@ -83,20 +111,19 @@ else:
     print("No log exists.")
 
 # Remove POS tags in the n-gram text
-pos_tags = ['ADJ', 'ADP', 'ADV', 'CONJ', 'DET', 'NOUN', 'NUM', 'PRON', 'PRT', 'VERB']
-remove = '|'.join(pos_tags)
-pa = re.compile(r'\b(' + remove + r')\b\s*')
+pa = re.compile(r'_[^\s]+')
 
 # Must include the last logged index in indices to-do
 indices = [i for i in get_indices(n=5) if i not in log_indices[:-1]]
 print("Indices to-do:", indices)
 
-streamer = NgramStreamer(lang='eng-us', n=5, ver='20120701', idx=indices, stream=False)
+streamer = NgramStreamer(lang='eng-us', n=5, ver='20120701', idx=['af'], stream=False)
 
 prev_index = log_indices[-1]
 prev_line = log_line
+
 for meta, record in streamer.iter_collection():
-    curr_line = record.line_number
+    curr_line = record.line
     curr_index = meta[-1]
 
     # Skipping records until the last logged if necessary
@@ -104,41 +131,37 @@ for meta, record in streamer.iter_collection():
         if curr_index == log_indices[-1] and curr_line <= log_line:
             continue
 
-    # Log the previous index and its last line (total lines)
+    # Log index transition and dump CSVs
     if curr_index != prev_index and curr_line == 1:
-        print("Previous index {} completed with total {} records.".format(prev_index, prev_line))
+        print("Index {} completed with total {} records.".format(prev_index, prev_line))
+        write_batch(result_dict, CSV_TEMPLATE, CSV_HEADER)
         write_log(LOG_FILE, prev_index, prev_line)
 
-    s = record.ngram
-    res = pa.sub('', s.replace('_X', '').replace('_', '')).lower()
+    # Modify record in tuple for hashing
+    rec = (pa.sub('', record.ngram).lower(), record.year, record.match_count, record.volume_count)
 
-    for key in target_dict:
-        # Log ngram match in each given group
-        csv_file = csv_template.format(group=key).replace(' ', '_')
-        file_exists = os.path.isfile(csv_file)
-        with open(csv_file, 'a', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=csv_header, delimiter='\t')
-            if not file_exists:
-                writer.writeheader()
-            for tag in target_dict[key]:
-                if res.startswith(tag) or res.endswith(tag):
-                    writer.writerow({'ngram': res,
-                                     'year': record.year,
-                                     'match_count': record.match_count,
-                                     'volume_count': record.volume_count})
-    # Log rate: every 10000 lines
-    if curr_line % 10000 == 1:
+    # Looking for match targets
+    for group in target_dict:
+        for tag in target_dict[group]:
+            if rec[0].startswith(tag) or rec[0].endswith(tag):
+                result_dict[group].add(rec)
+
+    # Dump match records into CSVs, and log
+    if curr_line % 500000 == 1:
         print("Index: {}, processed {}.".format(curr_index, curr_line))
+        write_batch(result_dict, CSV_TEMPLATE, CSV_HEADER)
         write_log(LOG_FILE, curr_index, curr_line)
 
-    # Kill signal handler interrupt, write log upon received
+    # Kill signal handler: dump match records into CSVs and log upon received
     if killer.kill_now:
         print("Kill received. Index: {} line: {}.".format(curr_index, curr_line))
+        write_batch(result_dict, CSV_TEMPLATE, CSV_HEADER)
         write_log(LOG_FILE, curr_index, curr_line)
         sys.exit(0)
 
     prev_index = curr_index
     prev_line = curr_line
 
-print("Complete!")
-
+print("Complete! Index {} with total {} records".format(prev_index, prev_line))
+write_batch(result_dict, CSV_TEMPLATE, CSV_HEADER)
+write_log(LOG_FILE, prev_index, prev_line)
