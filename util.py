@@ -39,8 +39,6 @@ def iter_content(file, chunk_size=1024**2):
     while buffer:
         yield buffer
         buffer = f.read(chunk_size)
-    # print("leftover")
-    # yield d.flush()
     f.close()
 
 
@@ -64,7 +62,7 @@ class NgramStreamer(object):
         self.version = ver
         self.indices = idx
         self.stream = stream
-        self.Record = namedtuple('Record', ['line_number', 'ngram', 'year', 'match_count', 'volume_count'])
+        self.Record = namedtuple('Record', ['line', 'ngram', 'year', 'match_count', 'volume_count'])
 
     def iter_index(self):
         session = requests.Session()
@@ -102,7 +100,7 @@ class NgramStreamer(object):
 
             dec = zlib.decompressobj(32 + zlib.MAX_WBITS)
             last = b''
-            num = 0
+            count = 0
             for chunk in compressed_chunks:
                 block = dec.decompress(chunk)
                 lines = (last + block).split(b'\n')
@@ -113,9 +111,9 @@ class NgramStreamer(object):
                     if len(data) != 4:
                         print("Ngram data less than 4 fields!")
                         continue
-                    num += 1
+                    count += 1
 
-                    yield meta, self.Record(num, data[0], *map(int, data[1:]))
+                    yield meta, self.Record(count, data[0], *map(int, data[1:]))
 
             if last:
                 print("Decompression abnormal")
@@ -133,3 +131,4 @@ class KillerHandler:
 
     def signal_handler(self, signum, frame):
         self.kill_now = True
+
