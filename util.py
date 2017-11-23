@@ -18,6 +18,8 @@ def get_indices(n=1):
         sorted list of indices
 
     """
+    assert type(n) == int and (0 <= n <= 5)
+
     others = ['other', 'punctuation']
     if n == 1:
         letters = list(ascii_lowercase)
@@ -34,11 +36,14 @@ def get_indices(n=1):
 
 
 def iter_content(file, chunk_size=1024**2):
+    assert type(chunk_size) == int and chunk_size > 0
+
     f = open(file, 'rb')
     buffer = f.read(chunk_size)
     while buffer:
         yield buffer
         buffer = f.read(chunk_size)
+
     f.close()
 
 
@@ -68,34 +73,37 @@ class NgramStreamer(object):
         session = requests.Session()
 
         self.indices = get_indices(n=self.ngram_size) if self.indices is None else self.indices
+
         url_template = 'http://storage.googleapis.com/books/ngrams/books/{}'
         file_template = 'googlebooks-{lang}-all-{n}gram-{ver}-{idx}.gz'
-        for idx in self.indices:
-            file = file_template.format(lang=self.language, n=self.ngram_size, ver=self.version, idx=idx)
+
+        for index in self.indices:
+            file = file_template.format(lang=self.language,
+                                        n=self.ngram_size,
+                                        ver=self.version,
+                                        idx=index)
             url = url_template.format(file)
-            meta = [self.language, self.ngram_size, self.version, idx]
+            # meta = [self.language, self.ngram_size, self.version, idx]
 
-            print("Establish connection...")
             try:
-                req = session.get(url, stream=self.stream)
-                assert req.status_code == 200
+                response = session.get(url, stream=self.stream)
+                assert response.status_code == 200
 
-                yield file, meta, req
+                yield file, index, response
 
             except AssertionError:
                 print("Unable to connect to {}...".format(url))
                 continue
 
     def iter_collection(self, chunk_size=1024**2):
-        for file, meta, req in self.iter_index():
+        for file, index, response in self.iter_index():
             if self.stream:
-                compressed_chunks = req.iter_content(chunk_size=chunk_size)
+                compressed_chunks = response.iter_content(chunk_size=chunk_size)
             else:
-                data_path = os.path.join("./data", file)
+                data_path = os.path.join('./data', file)
                 if not os.path.isfile(data_path):
-                    print("Data not found, downloading {}...".format(file))
                     with open(data_path, 'wb') as f:
-                        f.write(req.content)
+                        f.write(response.content)
                 compressed_chunks = iter_content(data_path, chunk_size=chunk_size)
 
             dec = zlib.decompressobj(32 + zlib.MAX_WBITS)
@@ -108,16 +116,12 @@ class NgramStreamer(object):
                 for line in lines:
                     decoded_line = line.decode('utf-8')
                     data = decoded_line.split('\t')
-                    if len(data) != 4:
-                        print("Ngram data less than 4 fields!")
-                        continue
+                    assert len(data) == 4
+
                     count += 1
+                    yield index, self.Record(count, data[0], *map(int, data[1:]))
 
-                    yield meta, self.Record(count, data[0], *map(int, data[1:]))
-
-            if last:
-                print("Decompression abnormal")
-                continue
+            assert not last
 
 
 class KillerHandler:
