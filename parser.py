@@ -6,23 +6,32 @@ import csv
 import re
 
 
-LOG_FILE = "./log.txt"
+CSV_HEADER = ['ngram', 'year', 'match_count', 'volume_count']
+LOG_FILE = './log.txt'
 
 
-def save_checkpoint(match_dict, log_fname, index, line):
+def save_checkpoint(filename, index, line):
     """
-        CSV batch writer for match records and log
+    Progress logger
     """
-    template = "./ngram_match/ngram_match_{group}.csv"
-    header = ['ngram', 'year', 'match_count', 'volume_count']
+    with open(filename, 'a') as f:
+        f.write(" ".join((index, str(line))) + "\n")
 
-    for group in match_dict:
-        match_set = match_dict[group]
+
+def save_batch(match_dict, header=None):
+    """
+    CSV batch writer for match records
+    """
+    assert type(match_dict) == dict
+
+    template = './ngram_match/ngram_match_{group}.csv'
+    for key in match_dict:
+        match_set = match_dict[key]
         if match_set:
-            fname = template.format(group=group).replace(' ', '_')
-            with open(fname, 'a', newline='') as csv_file:
-                csv_writer = csv.DictWriter(csv_file, fieldnames=header, delimiter='\t')
-                if not os.path.isfile(fname):
+            filename = template.format(group=key).replace(' ', '_')
+            with open(filename, 'a') as f:
+                csv_writer = csv.DictWriter(f, fieldnames=header, delimiter='\t')
+                if not os.path.isfile(filename):
                     csv_writer.writeheader()
                 for match_record in match_set:
                     csv_writer.writerow({'ngram': match_record[0],
@@ -31,33 +40,10 @@ def save_checkpoint(match_dict, log_fname, index, line):
                                          'volume_count': match_record[3]})
             match_set.clear()
 
-    with open(log_fname, 'a', newline='') as log_file:
-        log_file.write(" ".join((index, str(line))))
-
 
 killer = KillerHandler()
 
-"""
-     Labour party
-     Liberal party
-     Conservative party
-     Republican/Republicans/GOP
-     Democrat/Democrats/Democratic party
-     Communism/communist/communists
-     McCarthyism
-     Feminist/Feminism
-     Technology
-     Science
-     Economics
-     War
-     computer/computers
-     electricity
-     steam engine/steam engines
-     socialism/socialist/socialists
-     colonialism/colonialist/colonialists
-     fascism/fascist/fascists
-     protectionism/protectionist/protectionists
-"""
+
 target_dict = {'labour': ('labour party',),
                'liberal': ('liberal party',),
                'conservative': ('conservative party',),
@@ -87,8 +73,8 @@ log_indices = []
 log_line = 0
 if os.path.isfile(LOG_FILE):
     print("Log found:\n")
-    with open(LOG_FILE, 'r') as f:
-        lines = [line.strip('\n').split() for line in f]
+    with open(LOG_FILE, 'r') as log:
+        lines = [line.strip('\n').split() for line in log]
 
     if len(lines):
         # Extract unique indices from the log file
@@ -104,9 +90,6 @@ else:
     print("No log exists.")
 
 
-# Remove POS tags in the n-gram text
-pa = re.compile(r'_[^\s]+')
-
 # Must include the last logged index in indices to-do
 indices = [index for index in get_indices(n=5) if index not in log_indices[:-1]]
 print("Indices to-do from: '{}' to '{}'.".format(indices[0], indices[-1]))
@@ -116,22 +99,26 @@ streamer = NgramStreamer(lang='eng-us', n=5, ver='20120701', idx=indices, stream
 prev_index = indices[0]
 prev_line = log_line
 
-offset = True if (len(log_indices) > 0) and (log_line > 0) else False
+offset = True if len(log_indices) > 0 and log_line > 0 else False
 if offset:
     print("Jumping records...")
+
+# Remove POS tags in the n-gram text
+pa = re.compile(r'_[^\s]+')
+
 
 try:
     for curr_index, record in streamer.iter_collection():
         curr_line = record.line
-        # curr_index = meta[-1]
 
         # Skipping records until the last logged if necessary
-        if offset and (curr_index == log_indices[-1]) and (curr_line <= log_line):
+        if offset and curr_index == log_indices[-1] and curr_line <= log_line:
             continue
 
         # Save checkpoint at transition
-        if (curr_index != prev_index) and (curr_line == 1):
-            save_checkpoint(result_dict, LOG_FILE, prev_index, prev_line)
+        if curr_index != prev_index and curr_line == 1:
+            save_batch(result_dict, header=CSV_HEADER)
+            save_checkpoint(LOG_FILE, prev_index, prev_line)
             print("Index '{}' completed with {} records.".format(prev_index, prev_line))
 
         # Modify record in tuple for hashing
@@ -149,12 +136,13 @@ try:
 
         # Save checkpoint every 500,000 lines
         if curr_line % 500000 == 1:
-            save_checkpoint(result_dict, LOG_FILE, curr_index, curr_line)
+            save_batch(result_dict, header=CSV_HEADER)
             print("Index '{}' Line {}.".format(curr_index, curr_line))
 
         # Kill signal handler
         if killer.kill_now:
-            save_checkpoint(result_dict, LOG_FILE, curr_index, curr_line)
+            save_batch(result_dict, header=CSV_HEADER)
+            save_checkpoint(LOG_FILE, curr_index, curr_line)
             print("Kill received. Index '{}' Line {}.".format(curr_index, curr_line))
             sys.exit(0)
 
@@ -165,8 +153,8 @@ try:
 
 except Exception as e:
     print("\n--> Error:", e.args[0])
-    print("Checkpoint saved. Index '{}' Line {}.".format(prev_index, prev_line))
     pass
 
-save_checkpoint(result_dict, LOG_FILE, prev_index, prev_line)
-
+save_batch(result_dict, header=CSV_HEADER)
+save_checkpoint(LOG_FILE, prev_index, prev_line)
+print("Checkpoint saved. Index '{}' Line {}.".format(prev_index, prev_line))
