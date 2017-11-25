@@ -18,7 +18,7 @@ def get_indices(n=1):
         sorted list of indices
 
     """
-    assert type(n) == int and (0 <= n <= 5)
+    assert type(n) == int and 0 <= n <= 5
 
     others = ['other', 'punctuation']
     if n == 1:
@@ -38,29 +38,27 @@ def get_indices(n=1):
 def iter_content(file, chunk_size=1024**2):
     assert type(chunk_size) == int and chunk_size > 0
 
-    f = open(file, 'rb')
-    buffer = f.read(chunk_size)
-    while buffer:
-        yield buffer
+    with open(file, 'rb') as f:
         buffer = f.read(chunk_size)
-
-    f.close()
+        while buffer:
+            yield buffer
+            buffer = f.read(chunk_size)
 
 
 class NgramStreamer(object):
     def __init__(self, lang='eng-us', n=1, ver='20120701', idx=None, stream=True):
         """
-            Ngram streamer
-            Generate Record(line_number, ngram, year, match_count, volume_count)
+        Ngram streamer
+        Generate Record(line_number, ngram, year, match_count, volume_count)
 
-            # Arguments
-                lang: Language (str)
-                n:    N-gram size (int)
-                ver:  Version (str)
-                idx:  Index, or indices (list)
+        # Arguments
+            lang: Language (str)
+            n:    N-gram size (int)
+            ver:  Version (str)
+            idx:  Index, or indices (list)
 
-            # Outputs
-                yield meta (list), Record (namedtuple)
+        # Outputs
+            yield meta (list), Record (namedtuple)
         """
         self.language = lang
         self.ngram_size = n
@@ -83,7 +81,6 @@ class NgramStreamer(object):
                                         ver=self.version,
                                         idx=index)
             url = url_template.format(file)
-            # meta = [self.language, self.ngram_size, self.version, idx]
 
             try:
                 response = session.get(url, stream=self.stream)
@@ -127,7 +124,7 @@ class NgramStreamer(object):
 class KillerHandler:
     def __init__(self):
         """
-            System Signal handler
+        System Signal handler
         """
         self.kill_now = False
         signal.signal(signal.SIGINT, self.signal_handler)
