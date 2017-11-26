@@ -18,7 +18,7 @@ def get_indices(n=1):
         sorted list of indices
 
     """
-    assert type(n) == int and 0 <= n <= 5
+    assert isinstance(n, int) and 0 <= n <= 5
 
     others = ['other', 'punctuation']
     if n == 1:
@@ -35,10 +35,10 @@ def get_indices(n=1):
     return sorted(list(digits) + letters + others)
 
 
-def iter_content(file, chunk_size=1024**2):
-    assert type(chunk_size) == int and chunk_size > 0
+def iter_content(filename, chunk_size=1024**2):
+    assert isinstance(chunk_size, int) and chunk_size > 0
 
-    with open(file, 'rb') as f:
+    with open(filename, 'rb') as f:
         buffer = f.read(chunk_size)
         while buffer:
             yield buffer
@@ -83,7 +83,7 @@ class NgramStreamer(object):
             url = url_template.format(file)
 
             try:
-                response = session.get(url, stream=self.stream)
+                response = session.get(url, stream=True)
                 assert response.status_code == 200
 
                 yield file, index, response
@@ -97,10 +97,11 @@ class NgramStreamer(object):
             if self.stream:
                 compressed_chunks = response.iter_content(chunk_size=chunk_size)
             else:
-                data_path = os.path.join('./data', file)
+                data_path = os.path.join('data', file)
                 if not os.path.isfile(data_path):
                     with open(data_path, 'wb') as f:
-                        f.write(response.content)
+                        for chunk in response.iter_content(chunk_size=chunk_size):
+                            f.write(chunk)
                 compressed_chunks = iter_content(data_path, chunk_size=chunk_size)
 
             dec = zlib.decompressobj(32 + zlib.MAX_WBITS)
