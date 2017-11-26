@@ -7,7 +7,7 @@ import re
 
 
 CSV_HEADER = ['ngram', 'year', 'match_count', 'volume_count']
-LOG_FILE = './log.txt'
+LOG_FILE = 'log.txt'
 
 
 def save_checkpoint(filename, index, line):
@@ -18,15 +18,15 @@ def save_checkpoint(filename, index, line):
         f.write(" ".join((index, str(line))) + "\n")
 
 
-def save_batch(match_dict, header=None):
+def save_results(result_dict, header=None):
     """
     CSV batch writer for match records
     """
-    assert type(match_dict) == dict
+    assert isinstance(result_dict, dict)
 
-    template = './ngram_match/ngram_match_{group}.csv'
-    for key in match_dict:
-        match_set = match_dict[key]
+    template = os.path.join('ngram_match', 'ngram_match_{group}.csv')
+    for key in result_dict:
+        match_set = result_dict[key]
         if match_set:
             filename = template.format(group=key).replace(' ', '_')
             with open(filename, 'a') as f:
@@ -44,28 +44,28 @@ def save_batch(match_dict, header=None):
 killer = KillerHandler()
 
 
-target_dict = {'labour': ('labour party',),
-               'liberal': ('liberal party',),
-               'conservative': ('conservative party',),
-               'republican': ('republican', 'republicans', 'gop'),
-               'democrat': ('democrat', 'democrats', 'democratic party'),
-               'communism': ('communism', 'communist', 'communists'),
-               'mccarthyism': ('mccarthyism',),
-               'feminism': ('feminism', 'feminist'),
-               'technology': ('technology',),
-               'science': ('science',),
-               'economics': ('economics',),
-               'war': ('war',),
-               'computer': ('computer', 'computers'),
-               'electricity': ('electricity',),
-               'steam engine': ('steam engine', 'steam engines'),
-               'socialism': ('socialism', 'socialist', 'socialists'),
-               'colonialism': ('colonialism', 'colonialist', 'colonialists'),
-               'fascism': ('fascism', 'fascist', 'fascists'),
-               'protectionism': ('protectionism', 'protectionist', 'protectionists')}
+target_groups = {'labour': ('labour party',),
+                 'liberal': ('liberal party',),
+                 'conservative': ('conservative party',),
+                 'republican': ('republican', 'republicans', 'gop'),
+                 'democrat': ('democrat', 'democrats', 'democratic party'),
+                 'communism': ('communism', 'communist', 'communists'),
+                 'mccarthyism': ('mccarthyism',),
+                 'feminism': ('feminism', 'feminist'),
+                 'technology': ('technology',),
+                 'science': ('science',),
+                 'economics': ('economics',),
+                 'war': ('war',),
+                 'computer': ('computer', 'computers'),
+                 'electricity': ('electricity',),
+                 'steam engine': ('steam engine', 'steam engines'),
+                 'socialism': ('socialism', 'socialist', 'socialists'),
+                 'colonialism': ('colonialism', 'colonialist', 'colonialists'),
+                 'fascism': ('fascism', 'fascist', 'fascists'),
+                 'protectionism': ('protectionism', 'protectionist', 'protectionists')}
 
 # Initialize a set collection of match results
-result_dict = {key: set() for key in target_dict}
+match_results = {key: set() for key in target_groups}
 
 
 # Log parser
@@ -117,7 +117,7 @@ try:
 
         # Save checkpoint at transition
         if curr_index != prev_index and curr_line == 1:
-            save_batch(result_dict, header=CSV_HEADER)
+            save_results(match_results, header=CSV_HEADER)
             save_checkpoint(LOG_FILE, prev_index, prev_line)
             print("Index '{}' completed with {} records.".format(prev_index, prev_line))
 
@@ -129,19 +129,19 @@ try:
         rec = (record_ngram.lower(), record.year, record.match_count, record.volume_count)
 
         # Looking for match targets
-        for group in target_dict:
-            for tag in target_dict[group]:
+        for group in target_groups:
+            for tag in target_groups[group]:
                 if rec[0].startswith(tag) or rec[0].endswith(tag):
-                    result_dict[group].add(rec)
+                    match_results[group].add(rec)
 
         # Save checkpoint every 500,000 lines
         if curr_line % 500000 == 1:
-            save_batch(result_dict, header=CSV_HEADER)
+            save_results(match_results, header=CSV_HEADER)
             print("Index '{}' Line {}.".format(curr_index, curr_line))
 
         # Kill signal handler
         if killer.kill_now:
-            save_batch(result_dict, header=CSV_HEADER)
+            save_results(match_results, header=CSV_HEADER)
             save_checkpoint(LOG_FILE, curr_index, curr_line)
             print("Kill received. Index '{}' Line {}.".format(curr_index, curr_line))
             sys.exit(0)
@@ -155,6 +155,6 @@ except Exception as e:
     print("\n--> Error:", e.args[0])
     pass
 
-save_batch(result_dict, header=CSV_HEADER)
+save_results(match_results, header=CSV_HEADER)
 save_checkpoint(LOG_FILE, prev_index, prev_line)
 print("Checkpoint saved. Index '{}' Line {}.".format(prev_index, prev_line))
