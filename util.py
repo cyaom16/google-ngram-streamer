@@ -14,13 +14,24 @@ def get_indices(language='eng', gram_size=1):
     """
         Get the whole list of indices for the selected collection
 
+        Exclusions:
+
+        4-gram:
+            Only British English 4-gram collection do not have 'qz'
+
+        5-gram:
+            All 5-gram collections do not have index 'qk'
+            Extra exclusion:
+                American English: 'qz'
+                British English: 'gq', 'lq', 'qg', 'qh', 'qs', 'vq', 'wq', 'xb', 'xq', 'xw', 'zq',
+                'zt', 'zz'
+
         # Arguments
             language:  Language
             gram_size: N-gram size
 
         # Outputs
             sorted list of indices
-
     """
     others = ['other', 'punctuation']
 
@@ -28,16 +39,19 @@ def get_indices(language='eng', gram_size=1):
         letters = list(ascii_lowercase)
         others += ['pos']
     else:
+        # All letter combinations
         letters = [''.join(i) for i in product(ascii_lowercase, '_' + ascii_lowercase)]
 
-        # British English collection 4-gram do not have 'qz'
         if gram_size == 4 and language == 'eng-gb':
             letters.remove('qz')
 
-        # American/British English 5-gram collections do not have index 'qk' nor 'qz'
         if gram_size == 5:
             letters.remove('qk')
-            if language in ('eng-us', 'eng-gb'):
+            if language == 'eng-gb':
+                gb5_exclude = ['gq', 'lq', 'qg', 'qh', 'qs', 'vq', 'wq', 'xb', 'xq', 'xw', 'zq',
+                               'zt', 'zz']
+                letters = [i for i in letters if i not in gb5_exclude]
+            elif language == 'eng-us':
                 letters.remove('qz')
 
         others += ['_ADJ_', '_ADP_', '_ADV_', '_CONJ_', '_DET_',
