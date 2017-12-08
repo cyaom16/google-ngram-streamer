@@ -1,131 +1,276 @@
 from string import ascii_lowercase, digits
-from collections import namedtuple
+# from collections import namedtuple
 from itertools import product
+import multiprocessing as mp
 import requests
-import os.path
 import signal
-import zlib
+import gzip
+import time
+import csv
+import os
+import re
 
 
-def get_indices(n=1):
+def get_indices(lang='eng', n=1):
     """
-    Get the list of indices for Google Ngram Viewer
-
-    # Arguments
-        n: N-gram size
+        Get the whole list of indices for the selected collection
 
     # Outputs
         sorted list of indices
 
     """
-    assert isinstance(n, int) and 0 <= n <= 5
-
     others = ['other', 'punctuation']
+
     if n == 1:
         letters = list(ascii_lowercase)
         others += ['pos']
     else:
         letters = [''.join(i) for i in product(ascii_lowercase, '_' + ascii_lowercase)]
-        # All 5-gram collections do not have index qk
+
+        # British English collection 4-gram do not have 'qz'
+        if n == 4 and lang == 'eng-gb':
+            letters.remove('qz')
+
+        # American/British English 5-gram collections do not have index 'qk' nor 'qz'
         if n == 5:
             letters.remove('qk')
+            if lang in ('eng-us', 'eng-gb'):
+                letters.remove('qz')
+
         others += ['_ADJ_', '_ADP_', '_ADV_', '_CONJ_', '_DET_',
                    '_NOUN_', '_NUM_', '_PRON_', '_PRT_', '_VERB_']
 
     return sorted(list(digits) + letters + others)
 
 
-def iter_content(filename, chunk_size=1024**2):
-    assert isinstance(chunk_size, int) and chunk_size > 0
-
-    with open(filename, 'rb') as f:
-        buffer = f.read(chunk_size)
-        while buffer:
-            yield buffer
-            buffer = f.read(chunk_size)
-
-
 class NgramStreamer(object):
-    def __init__(self, lang='eng-us', n=1, ver='20120701', idx=None, stream=True):
+    def __init__(self, language='eng', gram_size=1, version='20120701', indices=None):
         """
-        Ngram streamer
-        Generate Record(line_number, ngram, year, match_count, volume_count)
+            Google Ngram streamer
 
-        # Arguments
-            lang: Language (str)
-            n:    N-gram size (int)
-            ver:  Version (str)
-            idx:  Index, or indices (list)
-
-        # Outputs
-            yield meta (list), Record (namedtuple)
+            # Arguments
+                lang: Language (str)
+                n:    N-gram size (int)
+                ver:  Version (str)
+                idx:  Indices (list)
         """
-        self.language = lang
-        self.ngram_size = n
-        self.version = ver
-        self.indices = idx
-        self.stream = stream
-        self.Record = namedtuple('Record', ['line', 'ngram', 'year', 'match_count', 'volume_count'])
+        self.language = language
+        self.gram_size = gram_size
+        self.version = version
+        self.indices = indices if indices else get_indices(lang=self.language, n=self.gram_size)
+        self.curr_index = None
 
     def iter_index(self):
-        session = requests.Session()
+        """
+            Generator of index file
 
-        self.indices = get_indices(n=self.ngram_size) if self.indices is None else self.indices
+            # Arguments
+                None
+
+            # Outputs
+                yield file, index, and a Response object (Requests)
+        """
+        session = requests.Session()
 
         url_template = 'http://storage.googleapis.com/books/ngrams/books/{}'
         file_template = 'googlebooks-{lang}-all-{n}gram-{ver}-{idx}.gz'
 
         for index in self.indices:
-            file = file_template.format(lang=self.language,
-                                        n=self.ngram_size,
-                                        ver=self.version,
+            # Current index in progress
+            self.curr_index = index
+            file = file_template.format(lang=self.language, n=self.gram_size, ver=self.version,
                                         idx=index)
             url = url_template.format(file)
-
             try:
                 response = session.get(url, stream=True)
                 assert response.status_code == 200
-
-                yield file, index, response
-
+                yield file, response
             except AssertionError:
-                print("Unable to connect to {}...".format(url))
+                print("Unable to connect to", url)
                 continue
 
-    def iter_collection(self, chunk_size=1024**2):
-        for file, index, response in self.iter_index():
-            if self.stream:
-                compressed_chunks = response.iter_content(chunk_size=chunk_size)
-            else:
-                data_path = os.path.join('data', file)
-                if not os.path.isfile(data_path):
-                    with open(data_path, 'wb') as f:
-                        for chunk in response.iter_content(chunk_size=chunk_size):
-                            f.write(chunk)
-                compressed_chunks = iter_content(data_path, chunk_size=chunk_size)
+    def iter_content(self, chunk_size=1024**2):
+        for file, response in self.iter_index():
+            file_path = os.path.join('data', file)
 
-            dec = zlib.decompressobj(32 + zlib.MAX_WBITS)
-            last = b''
-            count = 0
-            for chunk in compressed_chunks:
-                block = dec.decompress(chunk)
-                lines = (last + block).split(b'\n')
-                lines, last = lines[:-1], lines[-1]
-                for line in lines:
-                    decoded_line = line.decode('utf-8')
-                    data = decoded_line.split('\t')
-                    assert len(data) == 4
+            # Download data for offline processing to avoid requests timeout
+            if not os.path.isfile(file_path):
+                with open(file_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=chunk_size):
+                        f.write(chunk)
 
-                    count += 1
-                    yield index, self.Record(count, data[0], *map(int, data[1:]))
+            with gzip.open(file_path, 'rt') as f:
+                chunk = f.read(chunk_size)
+                while chunk:
+                    chunk += f.readline()
+                    # Current index, decompressed chunk
+                    yield chunk
+                    chunk = f.read(chunk_size)
 
-            assert not last
+    def iter_record(self):
+        """
+            Generator of line data in the ngram data
+
+            # Arguments
+                chunk_size: Size of chunk to be processed
+
+            # Outputs
+                yield index, Record (namedtuple)
+        """
+        count = 0
+        for chunk in self.iter_content():
+            records = chunk.splitlines()
+            for record in records:
+                count += 1
+                # Current index, line number, line record
+                yield count, record
 
 
-class KillerHandler:
+class NgramParser(NgramStreamer):
+    """
+        Parse the ngram records to filter out match targets
+    """
+
+    # Class constants
+    targets = {'labour': ('labour party',),
+               'liberal': ('liberal party',),
+               'conservative': ('conservative party',),
+               'republican': ('republican', 'republicans', 'gop'),
+               'democrat': ('democrat', 'democrats', 'democratic party'),
+               'communism': ('communism', 'communist', 'communists'),
+               'mccarthyism': ('mccarthyism',),
+               'feminism': ('feminism', 'feminist'),
+               'technology': ('technology',),
+               'science': ('science',),
+               'economics': ('economics',),
+               'war': ('war',),
+               'computer': ('computer', 'computers'),
+               'electricity': ('electricity',),
+               'steam_engine': ('steam engine', 'steam engines'),
+               'socialism': ('socialism', 'socialist', 'socialists'),
+               'colonialism': ('colonialism', 'colonialist', 'colonialists'),
+               'fascism': ('fascism', 'fascist', 'fascists'),
+               'protectionism': ('protectionism', 'protectionist', 'protectionists')}
+
+    pattern = re.compile(r'_[^\s]+')
+
+    def __init__(self, language='eng', gram_size=1, version='20120701', indices=None,
+                 max_size=1000):
+
+        super(NgramParser, self).__init__(language=language, gram_size=gram_size,
+                                          version=version, indices=indices)
+        manager = mp.Manager()
+        self.queue = manager.Queue(maxsize=max_size)
+
+    def parser(self, chunk):
+        records = chunk.splitlines()
+        for record in records:
+            data = record.split('\t')
+
+            # For each record we remove the POS taggers attached to the words
+            # e.g. Technology_NOUN -> Technology
+            ngram_stem = self.pattern.sub('', data[0]).strip()
+            if not ngram_stem:
+                continue
+
+            ngram_text = ngram_stem.lower()
+
+            for group in self.targets:
+                for tag in self.targets[group]:
+                    if ngram_text.startswith(tag) or ngram_text.endswith(tag):
+                        self.queue.put((group, data))
+
+    def writer(self):
+        header = ['ngram', 'year', 'match_count', 'volume_count']
+        csv_path = 'ngram_match_{lang}_{n}gram'.format(lang=self.language, n=self.gram_size)
+        template = os.path.join(csv_path, '{group}.csv')
+
+        if not os.path.exists(csv_path):
+            print("Creating CSV directory:", csv_path)
+            os.makedirs(csv_path)
+
+        print("Writer PID: {}, PPID: {}".format(os.getpid(), os.getppid()))
+
+        while True:
+            item = self.queue.get()
+            if item == 'kill':
+                print("Kill received. Queue terminated")
+                break
+            key, data = item
+            file_name = template.format(group=key)
+            with open(file_name, 'a') as f:
+                csv_writer = csv.DictWriter(f, fieldnames=header, delimiter='\t')
+                if not os.path.isfile(file_name):
+                    csv_writer.writeheader()
+                csv_writer.writerow({'ngram': data[0],
+                                     'year': data[1],
+                                     'match_count': data[2],
+                                     'volume_count': data[3]})
+            self.queue.task_done()
+
+    @staticmethod
+    def logger(file_name, index):
+        with open(file_name, 'a') as f:
+            f.write(index + "\n")
+        print("Index '{}' logged".format(index))
+
+    def run_async(self, pool_size=1, job_limit=5000):
+        """
+            Run asynchronous with multiprocessing module
+
+            # Arguments
+                pool_size: Number of processes in the pool
+                job_limit: Limit of jobs in the pool (prevent memory overflow)
+
+        """
+        pool = mp.Pool(pool_size)
+
+        # Spawn writer process
+        overseer = pool.apply_async(self.writer)
+
+        prev_index = ''
+        log_file = 'log_{lang}_{n}gram.txt'.format(lang=self.language, n=self.gram_size)
+
+        jobs = []
+        for i, chunk in enumerate(self.iter_content()):
+            # Log once an index has been processing in the pool
+            if prev_index != self.curr_index:
+                self.logger(log_file, prev_index)
+
+            # Spawn parser processes
+            job = pool.apply_async(self.parser, (chunk,))
+            jobs.append(job)
+
+            # Every 1000-chunk takes about 1G of data
+            if i % 1000 == 1:
+                print("Processed {} chunks".format(i))
+
+            # Wait for pool task queue size below the threshold
+            # Prevent all memory dump into the queue
+            while pool._taskqueue.qsize() > job_limit:
+                print("Pool queue max out, waiting...")
+                # job.wait()
+                time.sleep(250)
+                print("Total {} jobs currently in the pool.".format(pool._taskqueue.qsize()))
+
+            prev_index = self.curr_index
+
+        for job in jobs:
+            job.get()
+
+        # Writer queue 'kill' signal
+        self.queue.put('kill')
+
+        pool.close()
+        pool.join()
+
+        self.logger(log_file, prev_index)
+
+
+class GraceKiller(object):
     def __init__(self):
         """
-        System Signal handler
+            System Signal handler
         """
         self.kill_now = False
         signal.signal(signal.SIGINT, self.signal_handler)
@@ -133,4 +278,3 @@ class KillerHandler:
 
     def signal_handler(self, signum, frame):
         self.kill_now = True
-
