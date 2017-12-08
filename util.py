@@ -192,11 +192,14 @@ class NgramParser(NgramStreamer):
 
     def parser(self, chunk):
         """
-            Producer function to parse line record line by line for target matching. The
-            match records will be enqueued into the Manager's queue for consumption.
+            Producer function to parse line record line by line for target matching.
+            The match records will be inserted into the Manager's queue for consumption.
 
             # Arguments
                 chunk: A block of data (lines) yield from iter_content
+
+            # Outputs
+                None
         """
         records = chunk.splitlines()
         for record in records:
@@ -217,7 +220,8 @@ class NgramParser(NgramStreamer):
 
     def writer(self):
         """
-            Consumer function to write the match records into corresponding CSV groups
+            Consumer function to write the match records into corresponding CSV groups.
+            The match records will be released from the Manager's queue for consumption.
 
             # Arguments
                 None
