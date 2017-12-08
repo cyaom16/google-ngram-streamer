@@ -11,9 +11,13 @@ import os
 import re
 
 
-def get_indices(lang='eng', n=1):
+def get_indices(language='eng', gram_size=1):
     """
         Get the whole list of indices for the selected collection
+
+    # Arguments
+        language:  Language
+        gram_size: N-gram size
 
     # Outputs
         sorted list of indices
@@ -21,20 +25,20 @@ def get_indices(lang='eng', n=1):
     """
     others = ['other', 'punctuation']
 
-    if n == 1:
+    if gram_size == 1:
         letters = list(ascii_lowercase)
         others += ['pos']
     else:
         letters = [''.join(i) for i in product(ascii_lowercase, '_' + ascii_lowercase)]
 
         # British English collection 4-gram do not have 'qz'
-        if n == 4 and lang == 'eng-gb':
+        if gram_size == 4 and language == 'eng-gb':
             letters.remove('qz')
 
         # American/British English 5-gram collections do not have index 'qk' nor 'qz'
-        if n == 5:
+        if gram_size == 5:
             letters.remove('qk')
-            if lang in ('eng-us', 'eng-gb'):
+            if language in ('eng-us', 'eng-gb'):
                 letters.remove('qz')
 
         others += ['_ADJ_', '_ADP_', '_ADV_', '_CONJ_', '_DET_',
@@ -49,15 +53,18 @@ class NgramStreamer(object):
             Google Ngram streamer
 
             # Arguments
-                lang: Language (str)
-                n:    N-gram size (int)
-                ver:  Version (str)
-                idx:  Indices (list)
+                language:  Language
+                gram_size: N-gram size
+                version:   Version
+                indices:   Indices
         """
         self.language = language
         self.gram_size = gram_size
         self.version = version
-        self.indices = indices if indices else get_indices(lang=self.language, n=self.gram_size)
+        self.indices = indices
+        if self.indices is None:
+            self.indices = get_indices(language=self.language, gram_size=self.gram_size)
+
         self.curr_index = None
 
     def iter_index(self):
@@ -68,7 +75,8 @@ class NgramStreamer(object):
                 None
 
             # Outputs
-                yield file, index, and a Response object (Requests)
+                file:     Index file name
+                response: Response object
         """
         session = requests.Session()
 
@@ -90,6 +98,15 @@ class NgramStreamer(object):
                 continue
 
     def iter_content(self, chunk_size=1024**2):
+        """
+            Generator of file content
+
+            # Arguments
+                chunk_size: Size of chunk to be read into the buffer
+
+            # Outputs
+                chunk: A block of data (lines) generated
+        """
         for file, response in self.iter_index():
             file_path = os.path.join('data', file)
 
@@ -102,6 +119,8 @@ class NgramStreamer(object):
             with gzip.open(file_path, 'rt') as f:
                 chunk = f.read(chunk_size)
                 while chunk:
+                    # Since chunk could be located in the middle of lines, we read a extra line
+                    # ended with a newline character to ensure the lines are intact in the chunk
                     chunk += f.readline()
                     # Current index, decompressed chunk
                     yield chunk
@@ -109,13 +128,14 @@ class NgramStreamer(object):
 
     def iter_record(self):
         """
-            Generator of line data in the ngram data
+            Generator of line data
 
             # Arguments
-                chunk_size: Size of chunk to be processed
+                None
 
             # Outputs
-                yield index, Record (namedtuple)
+                count:  Line number
+                record: Line record
         """
         count = 0
         for chunk in self.iter_content():
@@ -128,7 +148,14 @@ class NgramStreamer(object):
 
 class NgramParser(NgramStreamer):
     """
-        Parse the ngram records to filter out match targets
+        Parse the ngram records to filter out match targets (Producer-Consumer workflow)
+
+        # Arguments
+                language:  Language
+                gram_size: N-gram size
+                version:   Version
+                indices:   Indices
+                max_size:  Max queue size
     """
 
     # Class constants
@@ -163,6 +190,14 @@ class NgramParser(NgramStreamer):
         self.queue = manager.Queue(maxsize=max_size)
 
     def parser(self, chunk):
+        """
+            Worker function (Producer) to parse line record line by line for target matching. The
+            match
+            records will be enqueued into the Manager's queue for consumption.
+
+            # Arguments
+                chunk: A block of data (lines) yield from iter_content
+        """
         records = chunk.splitlines()
         for record in records:
             data = record.split('\t')
@@ -181,6 +216,15 @@ class NgramParser(NgramStreamer):
                         self.queue.put((group, data))
 
     def writer(self):
+        """
+            Manager function (Consumer) to write the match records into corresponding CSV groups
+
+            # Arguments
+                None
+
+            # Outputs
+                None
+        """
         header = ['ngram', 'year', 'match_count', 'volume_count']
         csv_path = 'ngram_match_{lang}_{n}gram'.format(lang=self.language, n=self.gram_size)
         template = os.path.join(csv_path, '{group}.csv')
@@ -221,6 +265,9 @@ class NgramParser(NgramStreamer):
             # Arguments
                 pool_size: Number of processes in the pool
                 job_limit: Limit of jobs in the pool (prevent memory overflow)
+
+            # Outputs
+                None
 
         """
         pool = mp.Pool(pool_size)
