@@ -1,5 +1,4 @@
 from string import ascii_lowercase, digits
-# from collections import namedtuple
 from itertools import product
 import multiprocessing as mp
 import requests
@@ -15,12 +14,12 @@ def get_indices(language='eng', gram_size=1):
     """
         Get the whole list of indices for the selected collection
 
-    # Arguments
-        language:  Language
-        gram_size: N-gram size
+        # Arguments
+            language:  Language
+            gram_size: N-gram size
 
-    # Outputs
-        sorted list of indices
+        # Outputs
+            sorted list of indices
 
     """
     others = ['other', 'punctuation']
@@ -86,8 +85,10 @@ class NgramStreamer(object):
         for index in self.indices:
             # Current index in progress
             self.curr_index = index
-            file = file_template.format(lang=self.language, n=self.gram_size, ver=self.version,
-                                        idx=index)
+            file = file_template.format(lang=self.language,
+                                        n=self.gram_size,
+                                        ver=self.version,
+                                        idx=self.curr_index)
             url = url_template.format(file)
             try:
                 response = session.get(url, stream=True)
@@ -148,7 +149,7 @@ class NgramStreamer(object):
 
 class NgramParser(NgramStreamer):
     """
-        Parse the ngram records to filter out match targets (Producer-Consumer workflow)
+        Parse the ngram records to filter out match targets in a producer-consumer workflow
 
         # Arguments
                 language:  Language
@@ -191,7 +192,7 @@ class NgramParser(NgramStreamer):
 
     def parser(self, chunk):
         """
-            Worker function (Producer) to parse line record line by line for target matching. The
+            Producer function to parse line record line by line for target matching. The
             match
             records will be enqueued into the Manager's queue for consumption.
 
@@ -217,7 +218,7 @@ class NgramParser(NgramStreamer):
 
     def writer(self):
         """
-            Manager function (Consumer) to write the match records into corresponding CSV groups
+            Consumer function to write the match records into corresponding CSV groups
 
             # Arguments
                 None
