@@ -193,8 +193,7 @@ class NgramParser(NgramStreamer):
     def parser(self, chunk):
         """
             Producer function to parse line record line by line for target matching. The
-            match
-            records will be enqueued into the Manager's queue for consumption.
+            match records will be enqueued into the Manager's queue for consumption.
 
             # Arguments
                 chunk: A block of data (lines) yield from iter_content
@@ -261,7 +260,7 @@ class NgramParser(NgramStreamer):
 
     def run_async(self, pool_size=1, job_limit=5000):
         """
-            Run asynchronous with multiprocessing module
+            Run asynchronous with multiprocessing backend
 
             # Arguments
                 pool_size: Number of processes in the pool
