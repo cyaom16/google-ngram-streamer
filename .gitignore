@@ -1,6 +1,7 @@
 __pycache__/
-ngram_match/
+ngram_match*/
 data/
 log.txt
 dec_test.py
-
+mp_parser.py
+parser.py
