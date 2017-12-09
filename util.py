@@ -257,6 +257,7 @@ class NgramParser(NgramStreamer):
             item = self.queue.get()
             if item == 'kill':
                 print("Kill received. Queue terminated")
+                self.queue.task_done()
                 break
             key, data = item
             file_name = template.format(group=key)
