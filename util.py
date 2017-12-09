@@ -92,15 +92,15 @@ class NgramStreamer(object):
         for index in self.indices:
             # Current index in progress
             self.curr_index = index
-            file = file_template.format(lang=self.language,
+            file_name = file_template.format(lang=self.language,
                                         n=self.gram_size,
                                         ver=self.version,
                                         idx=self.curr_index)
-            url = url_template.format(file)
+            url = url_template.format(file_name)
             try:
                 response = session.get(url, stream=True)
                 assert response.status_code == 200
-                yield file, response
+                yield file_name, response
             except AssertionError:
                 print("Unable to connect to", url)
                 continue
@@ -116,18 +116,16 @@ class NgramStreamer(object):
         """
         for file, response in self.iter_index():
             file_path = os.path.join('data', file)
-
             # Download data for offline processing to avoid requests timeout
             if not os.path.isfile(file_path):
                 with open(file_path, 'wb') as f:
                     for chunk in response.iter_content(chunk_size=chunk_size):
                         f.write(chunk)
-
             with gzip.open(file_path, 'rt') as f:
                 chunk = f.read(chunk_size)
                 while chunk:
-                    # Since chunk could be located in the middle of lines, we read a extra line
-                    # ended with a newline character to ensure the lines are intact in the chunk
+                    # Since chunk could be ended in the middle of a line, we need to read a extra
+                    # line with a newline character which ensures the lines are intact
                     chunk += f.readline()
                     yield chunk
                     chunk = f.read(chunk_size)
@@ -187,8 +185,6 @@ class NgramParser(NgramStreamer):
                                           indices=indices)
         manager = mp.Manager()
         self.queue = manager.Queue(maxsize=max_size)
-        # group: set() for group in self.targets
-        # self.res = manager.dict()
 
     def parser(self, chunk):
         """ Producer function (worker): parse and match the records line by line with the
