@@ -11,27 +11,23 @@ import re
 
 
 def get_indices(language='eng', gram_size=1):
-    """
-        Get the whole list of indices for the selected collection
+    """ Get the whole list of indices for the selected collection
 
-        Exclusions:
+    Exclusions:
+    4-gram:
+        Only British English 4-gram collection do not have 'qz'
 
-        4-gram:
-            Only British English 4-gram collection do not have 'qz'
+    5-gram:
+        All 5-gram collections do not have index 'qk'
+        American English: 'qz'
+        British English:  'gq','lq','qg','qh','qs','vq','wq','xb','xq','xw','zq','zt','zz'
 
-        5-gram:
-            All 5-gram collections do not have index 'qk'
-            Extra exclusion:
-                American English: 'qz'
-                British English: 'gq', 'lq', 'qg', 'qh', 'qs', 'vq', 'wq', 'xb', 'xq', 'xw', 'zq',
-                'zt', 'zz'
+    Arguments
+        language:  Language
+        gram_size: N-gram size
 
-        # Arguments
-            language:  Language
-            gram_size: N-gram size
-
-        # Outputs
-            sorted list of indices
+    Returns
+        sorted list of indices
     """
     others = ['other', 'punctuation']
 
@@ -61,14 +57,14 @@ def get_indices(language='eng', gram_size=1):
 
 
 class NgramStreamer(object):
-    """
-        Google Ngram streamer
+    """ Google Ngram streamer
 
-        # Arguments
-            language:  Language
-            gram_size: N-gram size
-            indices:   Indices
+    Arguments
+        language:  Language
+        gram_size: N-gram size
+        indices:   Indices
     """
+
     # Class constants
     version = '20120701'
 
@@ -82,15 +78,11 @@ class NgramStreamer(object):
         self.curr_index = None
 
     def iter_index(self):
-        """
-            Generator of index file
+        """ Generator of index file
 
-            # Arguments
-                None
-
-            # Outputs
-                file:     Index file name
-                response: Response object
+        Returns
+            file:     Index file name
+            response: Response object
         """
         session = requests.Session()
 
@@ -114,14 +106,13 @@ class NgramStreamer(object):
                 continue
 
     def iter_content(self, chunk_size=1024**2):
-        """
-            Generator of file content
+        """ Generator of file content
 
-            # Arguments
-                chunk_size: Size of chunk to be read into the buffer
+        Arguments
+            chunk_size: Size of chunk to be read into the buffer
 
-            # Outputs
-                chunk: A block of data (lines) generated
+        Returns
+            chunk: A block of data (lines) generated
         """
         for file, response in self.iter_index():
             file_path = os.path.join('data', file)
@@ -138,40 +129,33 @@ class NgramStreamer(object):
                     # Since chunk could be located in the middle of lines, we read a extra line
                     # ended with a newline character to ensure the lines are intact in the chunk
                     chunk += f.readline()
-                    # Current index, decompressed chunk
                     yield chunk
                     chunk = f.read(chunk_size)
 
     def iter_record(self):
-        """
-            Generator of line data
+        """ Generator of line data
 
-            # Arguments
-                None
-
-            # Outputs
-                count:  Line number
-                record: Line record
+        Outputs
+            count:  Line number
+            record: Line record
         """
         count = 0
         for chunk in self.iter_content():
             records = chunk.splitlines()
             for record in records:
                 count += 1
-                # Current index, line number, line record
                 yield count, record
 
 
 class NgramParser(NgramStreamer):
-    """
-        Parse the ngram records to filter out match targets in a producer-consumer workflow
+    """ Parse the ngram records to filter out match targets (producer-consumer workflow)
 
-        # Arguments
-                language:  Language
-                gram_size: N-gram size
-                version:   Version
-                indices:   Indices
-                max_size:  Max queue size
+    Arguments
+        language:  Language
+        gram_size: N-gram size
+        version:   Version
+        indices:   Indices
+        max_size:  Max size for consumer queue
     """
 
     # Class constants
@@ -207,15 +191,11 @@ class NgramParser(NgramStreamer):
         # self.res = manager.dict()
 
     def parser(self, chunk):
-        """
-            Producer function (worker): parse and match the records line by line with the
-            targets. The results are inserted into the Manager's queue for consumption.
+        """ Producer function (worker): parse and match the records line by line with the
+        targets. The results are inserted into the Manager's queue for consumption.
 
-            # Arguments
-                chunk: A block of data (lines) yield from iter_content
-
-            # Outputs
-                None
+        Arguments
+            chunk: A block of data (lines) yield from iter_content
         """
         records = chunk.splitlines()
         for record in records:
@@ -236,15 +216,8 @@ class NgramParser(NgramStreamer):
         return
 
     def writer(self):
-        """
-            Consumer function (overseer): load the match records released from the Manager's
-            queue to the corresponding CSV groups.
-
-            # Arguments
-                None
-
-            # Outputs
-                None
+        """ Consumer function (overseer): load the match records released from the Manager's
+        queue to the corresponding CSV groups.
         """
         header = ['ngram', 'year', 'match_count', 'volume_count']
         csv_path = 'match_{lang}_{n}gram'.format(lang=self.language, n=self.gram_size)
@@ -281,19 +254,14 @@ class NgramParser(NgramStreamer):
         print("Index '{}' logged".format(index))
 
     def run_async(self, pool_size=1, job_limit=5000):
-        """
-            Run asynchronous with multiprocessing backend
+        """ Run asynchronous with multiprocessing backend
 
-            Setting up the job_limit is a good practice that caps the task queue of the pool
-            within certain limit, to prevent out-of-memory problem in long running processes.
+        Setting up the job_limit is a good practice that caps the task queue of the pool within
+        certain limit, to prevent out-of-memory problem in long running processes.
 
-            # Arguments
-                pool_size: Number of processes in the pool
-                job_limit: Limit of jobs in the pool
-
-            # Outputs
-                None
-
+        Arguments
+            pool_size: Number of processes in the pool
+            job_limit: Limit of jobs in the pool
         """
         pool = mp.Pool(pool_size)
 
@@ -341,8 +309,7 @@ class NgramParser(NgramStreamer):
 
 class GraceKiller(object):
     def __init__(self):
-        """
-            System Signal handler
+        """ System Signal handler
         """
         self.kill_now = False
         signal.signal(signal.SIGINT, self.signal_handler)
