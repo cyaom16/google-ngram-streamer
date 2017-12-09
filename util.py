@@ -61,19 +61,20 @@ def get_indices(language='eng', gram_size=1):
 
 
 class NgramStreamer(object):
-    def __init__(self, language='eng', gram_size=1, version='20120701', indices=None):
-        """
-            Google Ngram streamer
+    """
+        Google Ngram streamer
 
-            # Arguments
-                language:  Language
-                gram_size: N-gram size
-                version:   Version
-                indices:   Indices
-        """
+        # Arguments
+            language:  Language
+            gram_size: N-gram size
+            indices:   Indices
+    """
+    # Class constants
+    version = '20120701'
+
+    def __init__(self, language='eng', gram_size=1, indices=None):
         self.language = language
         self.gram_size = gram_size
-        self.version = version
         self.indices = indices
         if self.indices is None:
             self.indices = get_indices(language=self.language, gram_size=self.gram_size)
@@ -174,35 +175,36 @@ class NgramParser(NgramStreamer):
     """
 
     # Class constants
-    targets = {'labour': ('labour party',),
-               'liberal': ('liberal party',),
-               'conservative': ('conservative party',),
-               'republican': ('republican', 'republicans', 'gop'),
-               'democrat': ('democrat', 'democrats', 'democratic party'),
-               'communism': ('communism', 'communist', 'communists'),
-               'mccarthyism': ('mccarthyism',),
-               'feminism': ('feminism', 'feminist'),
-               'technology': ('technology',),
-               'science': ('science',),
-               'economics': ('economics',),
-               'war': ('war',),
-               'computer': ('computer', 'computers'),
-               'electricity': ('electricity',),
-               'steam_engine': ('steam engine', 'steam engines'),
-               'socialism': ('socialism', 'socialist', 'socialists'),
-               'colonialism': ('colonialism', 'colonialist', 'colonialists'),
-               'fascism': ('fascism', 'fascist', 'fascists'),
+    targets = {'labour':        ('labour party',),
+               'liberal':       ('liberal party',),
+               'conservative':  ('conservative party',),
+               'republican':    ('republican', 'republicans', 'gop'),
+               'democrat':      ('democrat', 'democrats', 'democratic party'),
+               'communism':     ('communism', 'communist', 'communists'),
+               'mccarthyism':   ('mccarthyism',),
+               'feminism':      ('feminism', 'feminist'),
+               'technology':    ('technology',),
+               'science':       ('science',),
+               'economics':     ('economics',),
+               'war':           ('war',),
+               'computer':      ('computer', 'computers'),
+               'electricity':   ('electricity',),
+               'steam_engine':  ('steam engine', 'steam engines'),
+               'socialism':     ('socialism', 'socialist', 'socialists'),
+               'colonialism':   ('colonialism', 'colonialist', 'colonialists'),
+               'fascism':       ('fascism', 'fascist', 'fascists'),
                'protectionism': ('protectionism', 'protectionist', 'protectionists')}
 
     pattern = re.compile(r'_[^\s]+')
 
-    def __init__(self, language='eng', gram_size=1, version='20120701', indices=None,
-                 max_size=1000):
-
-        super(NgramParser, self).__init__(language=language, gram_size=gram_size,
-                                          version=version, indices=indices)
+    def __init__(self, language='eng', gram_size=1, indices=None, max_size=1000):
+        super(NgramParser, self).__init__(language=language,
+                                          gram_size=gram_size,
+                                          indices=indices)
         manager = mp.Manager()
         self.queue = manager.Queue(maxsize=max_size)
+        # group: set() for group in self.targets
+        # self.res = manager.dict()
 
     def parser(self, chunk):
         """
@@ -231,6 +233,7 @@ class NgramParser(NgramStreamer):
                 for tag in self.targets[group]:
                     if ngram_text.startswith(tag) or ngram_text.endswith(tag):
                         self.queue.put((group, data))
+        return
 
     def writer(self):
         """
@@ -244,7 +247,7 @@ class NgramParser(NgramStreamer):
                 None
         """
         header = ['ngram', 'year', 'match_count', 'volume_count']
-        csv_path = 'ngram_match_{lang}_{n}gram'.format(lang=self.language, n=self.gram_size)
+        csv_path = 'match_{lang}_{n}gram'.format(lang=self.language, n=self.gram_size)
         template = os.path.join(csv_path, '{group}.csv')
 
         if not os.path.exists(csv_path):
