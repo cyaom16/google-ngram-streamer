@@ -206,8 +206,8 @@ class NgramParser(NgramStreamer):
 
     def parser(self, chunk):
         """
-            Producer function to parse line record line by line for target matching.
-            The match records will be inserted into the Manager's queue for consumption.
+            Producer function (worker): parse and match the records line by line with the
+            targets. The results are inserted into the Manager's queue for consumption.
 
             # Arguments
                 chunk: A block of data (lines) yield from iter_content
@@ -234,8 +234,8 @@ class NgramParser(NgramStreamer):
 
     def writer(self):
         """
-            Consumer function to write the match records into corresponding CSV groups.
-            The match records will be released from the Manager's queue for consumption.
+            Consumer function (overseer): load the match records released from the Manager's
+            queue to the corresponding CSV groups.
 
             # Arguments
                 None
@@ -281,9 +281,12 @@ class NgramParser(NgramStreamer):
         """
             Run asynchronous with multiprocessing backend
 
+            Setting up the job_limit is a good practice that caps the task queue of the pool
+            within certain limit, to prevent out-of-memory problem in long running processes.
+
             # Arguments
                 pool_size: Number of processes in the pool
-                job_limit: Limit of jobs in the pool (prevent memory overflow)
+                job_limit: Limit of jobs in the pool
 
             # Outputs
                 None
@@ -311,10 +314,10 @@ class NgramParser(NgramStreamer):
             if i % 1000 == 1:
                 print("Processed {} chunks".format(i))
 
-            # Wait for pool task queue size below the threshold
-            # Prevent all memory dump into the queue
+            # Wait for pool task queue size below the job limit threshold
             while pool._taskqueue.qsize() > job_limit:
                 print("Pool queue max out, waiting...")
+                # If we wait for the last job to finish, it may take longer
                 # job.wait()
                 time.sleep(250)
                 print("Total {} jobs currently in the pool.".format(pool._taskqueue.qsize()))
