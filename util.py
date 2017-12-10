@@ -23,8 +23,8 @@ def get_indices(language='eng', gram_size=1):
         British English:  'gq','lq','qg','qh','qs','vq','wq','xb','xq','xw','zq','zt','zz'
 
     Arguments
-        language:  Language
-        gram_size: N-gram size
+        language:  Language ('eng', 'eng-us', 'eng-gb', 'eng-fiction')
+        gram_size: N-gram size (1 to 5)
 
     Returns
         sorted list of indices
@@ -60,15 +60,27 @@ class NgramStreamer(object):
     """ Google Ngram streamer
 
     Arguments
-        language:  Language
-        gram_size: N-gram size
-        indices:   Indices
+        data_path: Path of datasets
+        language:  Language ('eng', 'eng-us', 'eng-gb', 'eng-fiction')
+        gram_size: N-gram size (1 to 5)
+        indices:   Indices (a list or None)
     """
 
     # Class constants
     version = '20120701'
 
-    def __init__(self, language='eng', gram_size=1, indices=None):
+    def __init__(self, data_path='', language='eng', gram_size=1, indices=None):
+        assert isinstance(data_path, str)
+        assert isinstance(language, str)
+        assert isinstance(gram_size, int) and 1 <= gram_size <= 5
+        assert isinstance(indices, list) or indices is None
+
+        self.data_path = data_path
+        # If not using default directory and does not exist, we create one
+        if self.data_path and not os.path.isdir(self.data_path):
+            print("Creating directory:", self.data_path)
+            os.makedirs(self.data_path)
+
         self.language = language
         self.gram_size = gram_size
         self.indices = indices
@@ -86,17 +98,16 @@ class NgramStreamer(object):
         """
         session = requests.Session()
 
-        url_template = 'http://storage.googleapis.com/books/ngrams/books/{}'
+        url_template = 'http://storage.googleapis.com/books/ngrams/books/{file}'
         file_template = 'googlebooks-{lang}-all-{n}gram-{ver}-{idx}.gz'
 
         for index in self.indices:
-            # Current index in progress
             self.curr_index = index
             file_name = file_template.format(lang=self.language,
-                                        n=self.gram_size,
-                                        ver=self.version,
-                                        idx=self.curr_index)
-            url = url_template.format(file_name)
+                                             n=self.gram_size,
+                                             ver=self.version,
+                                             idx=self.curr_index)
+            url = url_template.format(file=file_name)
             try:
                 response = session.get(url, stream=True)
                 assert response.status_code == 200
@@ -114,13 +125,16 @@ class NgramStreamer(object):
         Returns
             chunk: A block of data (lines) generated
         """
+        assert isinstance(chunk_size, int)
+
         for file, response in self.iter_index():
-            file_path = os.path.join('data', file)
-            # Download data for offline processing to avoid requests timeout
+            file_path = os.path.join(self.data_path, file)
+            # Download data for offline processing to avoid requests timeout in the large files
             if not os.path.isfile(file_path):
                 with open(file_path, 'wb') as f:
                     for chunk in response.iter_content(chunk_size=chunk_size):
                         f.write(chunk)
+            # Open gz file in text mode
             with gzip.open(file_path, 'rt') as f:
                 chunk = f.read(chunk_size)
                 while chunk:
@@ -149,10 +163,10 @@ class NgramParser(NgramStreamer):
     """ Parse the ngram records to filter out match targets (producer-consumer workflow)
 
     Arguments
-        language:  Language
-        gram_size: N-gram size
-        version:   Version
-        indices:   Indices
+        data_path: Path of datasets
+        language:  Language ('eng', 'eng-us', 'eng-gb', 'eng-fiction')
+        gram_size: N-gram size (1 to 5)
+        indices:   Indices (a list or None)
         max_size:  Max size for consumer queue
     """
 
@@ -179,8 +193,11 @@ class NgramParser(NgramStreamer):
 
     pattern = re.compile(r'_[^\s]+')
 
-    def __init__(self, language='eng', gram_size=1, indices=None, max_size=1000):
-        super(NgramParser, self).__init__(language=language,
+    def __init__(self, data_path='', language='eng', gram_size=1, indices=None, max_size=1000):
+        assert isinstance(max_size, int) and max_size > 0
+        # Assertions are applied to its parent class NgramStreamer
+        super(NgramParser, self).__init__(data_path=data_path,
+                                          language=language,
                                           gram_size=gram_size,
                                           indices=indices)
         manager = mp.Manager()
@@ -191,8 +208,10 @@ class NgramParser(NgramStreamer):
         targets. The results are inserted into the Manager's queue for consumption.
 
         Arguments
-            chunk: A block of data (lines) yield from iter_content
+            chunk: A block of string data (lines) yield from iter_content
         """
+        assert isinstance(chunk, str)
+
         records = chunk.splitlines()
         for record in records:
             data = record.split('\t')
@@ -209,7 +228,6 @@ class NgramParser(NgramStreamer):
                 for tag in self.targets[group]:
                     if ngram_text.startswith(tag) or ngram_text.endswith(tag):
                         self.queue.put((group, data))
-        return
 
     def writer(self):
         """ Consumer function (overseer): load the match records released from the Manager's
@@ -245,6 +263,12 @@ class NgramParser(NgramStreamer):
 
     @staticmethod
     def logger(file_name, index):
+        """ Quick logger of the index has been fed into the queue
+
+        Arguments
+            file_name: Log file name
+            index:     Index name
+        """
         with open(file_name, 'a') as f:
             f.write(index + "\n")
         print("Index '{}' logged".format(index))
@@ -259,8 +283,10 @@ class NgramParser(NgramStreamer):
             pool_size: Number of processes in the pool
             job_limit: Limit of jobs in the pool
         """
-        pool = mp.Pool(pool_size)
+        assert isinstance(pool_size, int)
+        assert isinstance(job_limit, int) and job_limit > 0
 
+        pool = mp.Pool(pool_size)
         # Spawn writer process
         overseer = pool.apply_async(self.writer)
 
