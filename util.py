@@ -29,6 +29,9 @@ def get_indices(language='eng', gram_size=1):
     Returns
         sorted list of indices
     """
+    assert isinstance(language, str)
+    assert isinstance(gram_size, int) and 1 <= gram_size <= 5
+
     others = ['other', 'punctuation']
 
     if gram_size == 1:
