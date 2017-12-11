@@ -68,7 +68,6 @@ class NgramStreamer(object):
         gram_size: N-gram size (1 to 5)
         indices:   Indices (a list or None)
     """
-
     # Class constants
     version = '20120701'
 
@@ -141,8 +140,8 @@ class NgramStreamer(object):
             with gzip.open(file_path, 'rt') as f:
                 chunk = f.read(chunk_size)
                 while chunk:
-                    # Since chunk could be ended in the middle of a line, we need to read a extra
-                    # line with a newline character which ensures the lines are intact
+                    # Since chunk could be ended it up in the middle of a line, we need to read a
+                    # extra line with a newline character, which ensures the lines are intact
                     chunk += f.readline()
                     yield chunk
                     chunk = f.read(chunk_size)
@@ -150,7 +149,7 @@ class NgramStreamer(object):
     def iter_record(self):
         """Generator of line data
 
-        Outputs
+        Returns
             count:  Line number
             record: Line record
         """
@@ -172,7 +171,6 @@ class NgramParser(NgramStreamer):
         indices:   Indices (a list or None)
         max_size:  Max size for consumer queue
     """
-
     # Class constants
     targets = {'labour':        ('labour party',),
                'liberal':       ('liberal party',),
