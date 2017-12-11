@@ -1,4 +1,4 @@
-## Welcome to GitHub Pages
+## Google Ngram Streamer
 
 You can use the [editor on GitHub](https://github.com/cyaom16/google-ngram-streamer/edit/master/README.md) to maintain and preview the content for your website in Markdown files.
 
